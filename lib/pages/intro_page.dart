@@ -1,7 +1,27 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'location.dart'; // make sure you import your location page
 
-class IntroPage extends StatelessWidget {
+class IntroPage extends StatefulWidget {
   const IntroPage({super.key});
+
+  @override
+  State<IntroPage> createState() => _IntroPageState();
+}
+
+class _IntroPageState extends State<IntroPage> {
+  @override
+  void initState() {
+    super.initState();
+
+    // Wait 6 seconds, then navigate to location page
+    Timer(const Duration(seconds: 6), () {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LocationPage()),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
