@@ -1,3 +1,14 @@
+import java.util.Properties
+
+val localPropertiesFile = File(rootDir, ".env.gradle")
+val properties = Properties()
+
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { properties.load(it) }
+}
+
+val ndkVersionFromFile = properties.getProperty("NDK_VERSION") ?: "27.0.12077973"
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -8,7 +19,7 @@ plugins {
 android {
     namespace = "com.example.flutter_application_1"
     compileSdk = flutter.compileSdkVersion
-        ndkVersion = "27.0.12077973"
+    ndkVersion = ndkVersionFromFile
 
 
     compileOptions {
