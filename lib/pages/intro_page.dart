@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'location.dart'; // make sure you import your location page
+import 'package:flutter_application_1/pages/map_page.dart';
+// import 'location.dart'; // make sure you import your location page
 
 class IntroPage extends StatefulWidget {
   const IntroPage({super.key});
@@ -18,7 +19,7 @@ class _IntroPageState extends State<IntroPage> {
     Timer(const Duration(seconds: 6), () {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const LocationPage()),
+        MaterialPageRoute(builder: (context) => const MapPage()),
       );
     });
   }
