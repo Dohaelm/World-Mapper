@@ -31,8 +31,17 @@ dependencies:
   flutter:
     sdk: flutter
   google_maps_flutter: ^2.5.0
-  location: ^5.0.0
-
+  csv: ^5.0.2
+   
+  geolocator: ^14.0.0
+  custom_info_window: ^1.0.1
+  # for openstreetmap
+  latlong2: ^0.9.1
+  flutter_map: ^8.1.0
+  flutter_map_location_marker: ^10.1.0
+  location: ^7.0.1
+  http: ^1.3.0
+  flutter_polyline_points: ^2.1.0
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
@@ -63,6 +72,10 @@ flutter:
 
   assets:
       - lib/images/city.png
+      - assets/gtfs/routes.txt
+      - assets/gtfs/stops.txt
+      - assets/gtfs/stop_times.txt
+      - assets/gtfs/trips.txt
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

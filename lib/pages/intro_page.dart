@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/pages/openStreetMap.dart';
+import 'package:location/location.dart';
 
 class IntroPage extends StatefulWidget {
   const IntroPage({super.key});
