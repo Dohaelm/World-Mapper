@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:location/location.dart' as loc;
 import 'package:geocoding/geocoding.dart' as geo;
 import 'package:google_place/google_place.dart';
@@ -17,9 +19,13 @@ class MyHomeScreen extends StatefulWidget {
 
 class _MyHomeScreenState extends State<MyHomeScreen> {
   final Completer<GoogleMapController> _controller = Completer();
+  bool _showTransportOptions = false;
+
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _startPointController = TextEditingController();
   List<AutocompletePrediction> _startPredictions = [];
+  Set<Polyline> _polylines = {};
+  List<LatLng> _polylineCoordinates = [];
   
   final Set<Marker> _markers = {};
   late GooglePlace _googlePlace;
@@ -67,6 +73,67 @@ class _MyHomeScreenState extends State<MyHomeScreen> {
     ));
   }
 double _currentZoom = 15.0; // Default zoom level
+Future<void> _drawPolyline(LatLng start, LatLng end) async {
+  
+  final url = Uri.parse(
+    'https://maps.googleapis.com/maps/api/directions/json'
+    '?origin=${start.latitude},${start.longitude}'
+    '&destination=${end.latitude},${end.longitude}'
+    '&key=$apiKey',
+  );
+
+  final response = await http.get(url);
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    final points = data['routes'][0]['overview_polyline']['points'];
+    _polylineCoordinates = _decodePolyline(points);
+
+    setState(() {
+      _polylines.clear();
+      _polylines.add(
+        Polyline(
+          polylineId: PolylineId('route'),
+          width: 5,
+          color: Colors.blue,
+          points: _polylineCoordinates,
+        ),
+      );
+    });
+  } else {
+    print("Failed to get directions: ${response.body}");
+  }
+}
+List<LatLng> _decodePolyline(String encoded) {
+  List<LatLng> polyline = [];
+  int index = 0, len = encoded.length;
+  int lat = 0, lng = 0;
+
+  while (index < len) {
+    int b, shift = 0, result = 0;
+    do {
+      b = encoded.codeUnitAt(index++) - 63;
+      result |= (b & 0x1F) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    int dlat = ((result & 1) != 0) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.codeUnitAt(index++) - 63;
+      result |= (b & 0x1F) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    int dlng = ((result & 1) != 0) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+
+    polyline.add(LatLng(lat / 1e5, lng / 1e5));
+  }
+  return polyline;
+}
+
+
 
 Future<void> _zoomIn() async {
   final GoogleMapController controller = await _controller.future;
@@ -92,7 +159,7 @@ Future<void> _zoomOut() async {
   try {
     LatLng? startLatLng;
 
-    if (start.isEmpty) {
+    if (start.isEmpty || start == "Current Location") {
       // Use current location as start point
       startLatLng = LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!);
       if (startLatLng == null) {
@@ -120,6 +187,7 @@ Future<void> _zoomOut() async {
         );
         return;
       }
+     
     }
 
     // Get destination location details
@@ -175,10 +243,12 @@ Future<void> _zoomOut() async {
           infoWindow: InfoWindow(title: destination),
         ),
       ]);
+      _showTransportOptions = true;
       
     });
 
-    // TODO: Add route drawing polyline if you have one
+    await _drawPolyline(startLatLng, destLatLng);
+
 
   } catch (e) {
     print("Error searching locations: $e");
@@ -221,6 +291,7 @@ Future<void> _zoomOut() async {
                     zoom: _currentZoom,
                   ),
                   myLocationEnabled: true,
+                   polylines: _polylines,
                   myLocationButtonEnabled: false,
                   markers: _markers,
                   mapType: MapType.normal,
@@ -368,6 +439,8 @@ Positioned(
                           infoWindow: InfoWindow(title: prediction.description),
                         ),
                       );
+                      
+
                     });
                   }
                 },
@@ -379,14 +452,46 @@ Positioned(
       const SizedBox(height: 15),
 
       // Search button
-      ElevatedButton.icon(
+      Row(
+  children: [
+    // Search Button
+    Expanded(
+      child: ElevatedButton.icon(
         icon: Icon(Icons.search),
-        label: Text(''),
+        label: Text('Search'),
         onPressed: () => _searchAndNavigateBoth(
           _startPointController.text,
           _searchController.text,
         ),
       ),
+    ),
+
+    SizedBox(width: 10), // Space between buttons
+
+    if (_searchController.text.isNotEmpty )
+      
+    ElevatedButton.icon(
+      icon: Icon(Icons.cancel),
+      label: Text('Cancel'),
+      style: ElevatedButton.styleFrom(backgroundColor: Colors.white
+      ),
+      onPressed: () {
+        FocusScope.of(context).unfocus(); // Close keyboard
+        setState(() {
+          _searchController.clear();
+          _startPointController.text='Current Location';
+          _predictions = [];
+          _startPredictions = [];
+          _showTransportOptions= false;
+          _polylineCoordinates.clear();
+          _polylines.clear();
+          _markers.clear();
+        });
+      },
+    ),
+  ],
+)
+
     ],
   ),
 ),
@@ -402,6 +507,29 @@ Positioned(
   onMyLocation: _goToCurrentLocation, // You may already have this method
 ),
                 ),
+                if (_showTransportOptions)
+                Positioned(
+                  bottom: 90,
+                  left: 15,
+                  child: ElevatedButton.icon(
+                    icon: Icon(Icons.arrow_forward, color: Colors.white),
+                    label: Text("Let's Go"),
+    style: ElevatedButton.styleFrom(
+      backgroundColor: Colors.green,
+      foregroundColor: Colors.white,
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      textStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    ),
+    onPressed: () {
+      print("Transportation options clicked");
+    },
+  ),
+),
+  
+
               ],
             ),
     );
