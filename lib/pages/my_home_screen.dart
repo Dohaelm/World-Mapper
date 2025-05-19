@@ -18,6 +18,9 @@ class MyHomeScreen extends StatefulWidget {
 class _MyHomeScreenState extends State<MyHomeScreen> {
   final Completer<GoogleMapController> _controller = Completer();
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _startPointController = TextEditingController();
+  List<AutocompletePrediction> _startPredictions = [];
+  
   final Set<Marker> _markers = {};
   late GooglePlace _googlePlace;
   List<AutocompletePrediction> _predictions = [];
@@ -54,6 +57,8 @@ class _MyHomeScreenState extends State<MyHomeScreen> {
 
     setState(() {
       _currentLocation = locationData;
+      
+      _startPointController.text = "Current Location";
     });
 
     final GoogleMapController controller = await _controller.future;
@@ -75,42 +80,114 @@ Future<void> _zoomOut() async {
   controller.animateCamera(CameraUpdate.zoomTo(_currentZoom));
 }
 
- Future<void> _searchAndNavigate(String address) async {
-  if (address.trim().isEmpty) {
-    // If the search is empty, clear everything and exit
-    setState(() {
-      _markers.clear();
-      _predictions = [];
-    });
+
+ void _searchAndNavigateBoth(String start, String destination) async {
+  if (destination.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Please enter a destination")),
+    );
     return;
   }
 
   try {
-    List<geo.Location> locations = await geo.locationFromAddress(address);
-    if (locations.isNotEmpty) {
-      final target = LatLng(locations.first.latitude, locations.first.longitude);
+    LatLng? startLatLng;
 
-      final GoogleMapController controller = await _controller.future;
-      controller.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
-
-      setState(() {
-        _markers.clear();
-        _markers.add(
-          Marker(
-            markerId: MarkerId("searched_location"),
-            position: target,
-            infoWindow: InfoWindow(title: address),
-          ),
+    if (start.isEmpty) {
+      // Use current location as start point
+      startLatLng = LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!);
+      if (startLatLng == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Current location not available")),
         );
-      });
+        return;
+      }
+    } else {
+      // Get start location details from Google Places
+      var startResult = await _googlePlace.autocomplete.get(start);
+      var startPlaceId = startResult?.predictions?.first.placeId;
+
+      if (startPlaceId != null) {
+        var startDetails = await _googlePlace.details.get(startPlaceId);
+        if (startDetails?.result?.geometry?.location != null) {
+          var loc = startDetails!.result!.geometry!.location!;
+          startLatLng = LatLng(loc.lat!, loc.lng!);
+        }
+      }
+
+      if (startLatLng == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not find start location details.")),
+        );
+        return;
+      }
     }
+
+    // Get destination location details
+    var destResult = await _googlePlace.autocomplete.get(destination);
+    var destPlaceId = destResult?.predictions?.first.placeId;
+
+    if (destPlaceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Could not find destination location.")),
+      );
+      return;
+    }
+
+    var destDetails = await _googlePlace.details.get(destPlaceId);
+    if (destDetails?.result?.geometry?.location == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Could not find destination location details.")),
+      );
+      return;
+    }
+
+    final destLoc = destDetails!.result!.geometry!.location!;
+    final destLatLng = LatLng(destLoc.lat!, destLoc.lng!);
+
+    // Animate camera to show route bounds
+    final controller = await _controller.future;
+    controller.animateCamera(CameraUpdate.newLatLngBounds(
+      LatLngBounds(
+        southwest: LatLng(
+          startLatLng.latitude < destLatLng.latitude ? startLatLng.latitude : destLatLng.latitude,
+          startLatLng.longitude < destLatLng.longitude ? startLatLng.longitude : destLatLng.longitude,
+        ),
+        northeast: LatLng(
+          startLatLng.latitude > destLatLng.latitude ? startLatLng.latitude : destLatLng.latitude,
+          startLatLng.longitude > destLatLng.longitude ? startLatLng.longitude : destLatLng.longitude,
+        ),
+      ),
+      50,
+    ));
+
+    // Update markers and state
+    setState(() {
+      _markers.clear();
+      _markers.addAll([
+        Marker(
+          markerId: MarkerId("start_location"),
+          position: startLatLng!,
+          infoWindow: InfoWindow(title: start.isEmpty ? "Current Location" : start),
+        ),
+        Marker(
+          markerId: MarkerId("destination_location"),
+          position: destLatLng,
+          infoWindow: InfoWindow(title: destination),
+        ),
+      ]);
+      
+    });
+
+    // TODO: Add route drawing polyline if you have one
+
   } catch (e) {
-    print("Search error: $e");
+    print("Error searching locations: $e");
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not find location')),
+      SnackBar(content: Text("Failed to search locations.")),
     );
   }
 }
+
 
   Future<void> _goToCurrentLocation() async {
     final loc.LocationData locationData = await _location.getLocation();
@@ -151,104 +228,170 @@ Future<void> _zoomOut() async {
                     _controller.complete(controller);
                   },
                 ),
-                // Search input
-                Positioned(
-                  top: 20,
-                  left: 15,
-                  right: 15,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black26, blurRadius: 5),
-                      ],
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search destination...',
-                        suffixIcon: IconButton(
-                          icon: Icon(Icons.search),
-                          onPressed: () => _searchAndNavigate(_searchController.text),
+// Start Point input
+// Start Point input
+// START: TextField
+Positioned(
+  top: 20,
+  left: 15,
+  right: 15,
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      // Start input
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 5)],
+        ),
+        child: TextField(
+          controller: _startPointController,
+          decoration: InputDecoration(
+            hintText: 'Enter start location...',
+            border: InputBorder.none,
+          ),
+          onChanged: (value) async {
+            if (value.isNotEmpty) {
+              var result = await _googlePlace.autocomplete.get(value);
+              if (result != null && result.predictions != null) {
+                setState(() {
+                  _startPredictions = result.predictions!;
+                });
+              }
+            } else {
+              setState(() {
+                _startPredictions = [];
+              });
+            }
+          },
+        ),
+      ),
+
+      // Start predictions
+      if (_startPredictions.isNotEmpty)
+        Container(
+          color: Colors.white,
+          constraints: BoxConstraints(maxHeight: 150),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _startPredictions.length,
+            itemBuilder: (context, index) {
+              final prediction = _startPredictions[index];
+              return ListTile(
+                title: Text(prediction.description ?? ""),
+                onTap: () async {
+                  FocusScope.of(context).unfocus();
+                  setState(() {
+                    _startPointController.text = prediction.description ?? "";
+                    _startPredictions = [];
+                  });
+                  final details = await _googlePlace.details.get(prediction.placeId!);
+                  final location = details?.result?.geometry?.location;
+                  if (location != null) {
+                    final latLng = LatLng(location.lat!, location.lng!);
+                    final controller = await _controller.future;
+                    controller.animateCamera(CameraUpdate.newLatLngZoom(latLng, _currentZoom));
+                  }
+                },
+              );
+            },
+          ),
+        ),
+
+      const SizedBox(height: 10),
+
+      // Destination input
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 5)],
+        ),
+        child: TextField(
+          controller: _searchController,
+          decoration: InputDecoration(
+            hintText: 'Enter destination...',
+            border: InputBorder.none,
+          ),
+          onChanged: (value) async {
+            if (value.isNotEmpty) {
+              var result = await _googlePlace.autocomplete.get(value);
+              if (result != null && result.predictions != null) {
+                setState(() {
+                  _predictions = result.predictions!;
+                });
+              }
+            } else {
+              setState(() {
+                _predictions = [];
+                _markers.clear();
+              });
+            }
+          },
+        ),
+      ),
+
+      // Destination predictions
+      if (_predictions.isNotEmpty)
+        Container(
+          color: Colors.white,
+          constraints: BoxConstraints(maxHeight: 150),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _predictions.length,
+            itemBuilder: (context, index) {
+              final prediction = _predictions[index];
+              return ListTile(
+                title: Text(prediction.description ?? ""),
+                onTap: () async {
+                  FocusScope.of(context).unfocus();
+                  setState(() {
+                    _searchController.text = prediction.description ?? "";
+                    _predictions = [];
+                  });
+                  final details = await _googlePlace.details.get(prediction.placeId!);
+                  final location = details?.result?.geometry?.location;
+                  if (location != null) {
+                    final latLng = LatLng(location.lat!, location.lng!);
+                    final controller = await _controller.future;
+                    controller.animateCamera(CameraUpdate.newLatLngZoom(latLng, _currentZoom));
+
+                    setState(() {
+                      _markers.clear();
+                      _markers.add(
+                        Marker(
+                          markerId: MarkerId("selected_location"),
+                          position: latLng,
+                          infoWindow: InfoWindow(title: prediction.description),
                         ),
-                        border: InputBorder.none,
-                      ),
-                     onChanged: (value) async {
-  if (value.isNotEmpty) {
-    var result = await _googlePlace.autocomplete.get(value);
-    if (result != null && result.predictions != null) {
-      setState(() {
-        _predictions = result.predictions!;
-      });
-    }
-  } else {
-    setState(() {
-      _predictions = [];
-      _markers.clear(); 
-    });
-  }
-},
-                      onSubmitted: (value) => _searchAndNavigate(value),
-                    ),
-                  ),
-                ),
-                // Suggestions list (only shown if not empty)
-                if (_predictions.isNotEmpty)
-                  Positioned(
-                    top: 80,
-                    left: 15,
-                    right: 15,
-                    child: Container(
-                      color: Colors.white,
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _predictions.length,
-                        itemBuilder: (context, index) {
-                          final prediction = _predictions[index];
-                          return ListTile(
-                            title: Text(prediction.description ?? ""),
-                            onTap: () async {
-                              FocusScope.of(context).unfocus();
-                              setState(() {
-                                _searchController.text = prediction.description ?? "";
-                                _predictions = [];
-                              });
+                      );
+                    });
+                  }
+                },
+              );
+            },
+          ),
+        ),
 
-                              try {
-                                final details = await _googlePlace.details.get(prediction.placeId!);
-                                if (details != null && details.result != null) {
-                                  final location = details.result!.geometry?.location;
-                                  if (location != null) {
-                                    final latLng = LatLng(location.lat!, location.lng!);
-                                    final controller = await _controller.future;
-                                    controller.animateCamera(CameraUpdate.newLatLngZoom(latLng, 15));
+      const SizedBox(height: 15),
 
-                                    setState(() {
-                                      _markers.clear();
-                                      _markers.add(
-                                        Marker(
-                                          markerId: MarkerId("selected_location"),
-                                          position: latLng,
-                                          infoWindow: InfoWindow(title: prediction.description),
-                                        ),
-                                      );
-                                    });
-                                  }
-                                }
-                              } catch (e) {
-                                print("Place details error: $e");
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text("Failed to get place details.")),
-                                );
-                              }
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ),
+      // Search button
+      ElevatedButton.icon(
+        icon: Icon(Icons.search),
+        label: Text(''),
+        onPressed: () => _searchAndNavigateBoth(
+          _startPointController.text,
+          _searchController.text,
+        ),
+      ),
+    ],
+  ),
+),
+
+
                 // Button for current location
                 Positioned(
                   bottom: 30,
