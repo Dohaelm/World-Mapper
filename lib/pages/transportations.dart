@@ -9,6 +9,7 @@ class TransportationOptionsPage extends StatefulWidget {
   final LatLng startPoint;
   final LatLng destinationPoint;
 
+
   const TransportationOptionsPage({
     required this.startPoint,
     required this.destinationPoint,
@@ -24,11 +25,61 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
   List<dynamic> routes = [];
   bool isLoading = true;
   String? errorMessage;
+  Map<String, dynamic>? cheapestRoute;
+  Map<String, dynamic>? fastestRoute;
+  Map<String, dynamic>? mostComfortableRoute;
+
+  
+  dynamic drivingRoute;
   
   // The green theme colors
   final Color primaryGreen = Color(0xFF4CAF50);
   final Color lightGreen = Color(0xFFAED581);
   final Color darkGreen = Color(0xFF2E7D32);
+  void classifyRoutes() {
+  if (routes.isEmpty) return;
+
+  // Cheapest based on estimated price
+  cheapestRoute = routes.reduce((a, b) {
+    final priceA = calculateTotalPrice(a);
+    final priceB = calculateTotalPrice(b);
+    return priceA < priceB ? a : b;
+  });
+
+  // Fastest based on duration value (in seconds)
+  fastestRoute = routes.reduce((a, b) {
+    final durationA = a['legs'][0]['duration']['value'];
+    final durationB = b['legs'][0]['duration']['value'];
+    return durationA < durationB ? a : b;
+  });
+
+  // Most comfortable: Prefer TRAM > SUBWAY > BUS > others
+  List<String> comfortRanking = ['TRAM', 'SUBWAY', 'BUS'];
+  mostComfortableRoute = routes.firstWhere(
+    (route) => route['legs'][0]['steps'].any((step) {
+      if (step['travel_mode'] == 'TRANSIT') {
+        final vehicleType = extractVehicleType(step['transit_details']['line']);
+        return comfortRanking.contains(vehicleType);
+      }
+      return false;
+    }),
+    orElse: () => routes.first,
+  );
+}
+double calculateTotalPrice(Map<String, dynamic> route) {
+  double total = 0.0;
+  for (var step in route['legs'][0]['steps']) {
+    if (step['travel_mode'] == 'TRANSIT') {
+      final line = step['transit_details']['line'];
+      final vehicleType = extractVehicleType(line);
+      final distance = step['distance']?['value'] ?? 0;
+      total += calculatePrice(vehicleType, distance.toDouble());
+    }
+  }
+  return total;
+}
+
+
   String extractVehicleType(Map<String, dynamic> line) {
   if (line['vehicle'] != null) {
     if (line['vehicle']['type'] != null && line['vehicle']['type'] != 'TRANSIT') {
@@ -73,14 +124,18 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
     });
     
     try {
-      // Fetch transit routes
-      await fetchTransitRoutes();
-      
+    await Future.wait([
+      fetchTransitRoutes(),
+      fetchDrivingDirections(),
+    ]);
       // If no routes found, calculate walking directions
       if (routes.isEmpty) {
         await fetchWalkingDirections();
       }
+      classifyRoutes();
+
     } catch (e) {
+    if (!mounted) return;
       setState(() {
         errorMessage = 'Failed to fetch transportation options: $e';
         isLoading = false;
@@ -167,6 +222,42 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
       });
     }
   }
+  Future<void> fetchDrivingDirections() async {
+  final origin = '${widget.startPoint.latitude},${widget.startPoint.longitude}';
+  final destination = '${widget.destinationPoint.latitude},${widget.destinationPoint.longitude}';
+
+  final url =
+      'https://maps.googleapis.com/maps/api/directions/json?origin=$origin&destination=$destination&mode=driving&key=$googleApiKey';
+
+  try {
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+
+      if (data['status'] == 'OK' && data['routes'].isNotEmpty) {
+        setState(() {
+          drivingRoute = data['routes'][0]; // Store only the best driving route
+        });
+      } else {
+        setState(() {
+          drivingRoute = null;
+        });
+        print('Driving directions error: ${data['status']}');
+      }
+    } else {
+      setState(() {
+        drivingRoute = null;
+      });
+      print('Failed to fetch driving directions: ${response.statusCode}');
+    }
+  } catch (e) {
+    setState(() {
+      drivingRoute = null;
+    });
+    print('Driving directions error: $e');
+  }
+}
+
 
   // Calculate price based on distance and mode of transport
   double calculatePrice(String mode, double distanceInMeters) {
@@ -260,7 +351,11 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
             buildInfoRow(Icons.straighten, 'Distance', distance),
             SizedBox(height: 4),
             buildInfoRow(Icons.monetization_on, 'Estimated Price', 'MAD ${taxiPrice.toStringAsFixed(1)}'),
+           
           ],
+          
+        
+           
         ),
       ),
     );
@@ -272,6 +367,7 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
     final duration = leg['duration']['text'];
 
     return Card(
+      
       elevation: 4,
       margin: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       shape: RoundedRectangleBorder(
@@ -301,12 +397,7 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
             buildInfoRow(Icons.straighten, 'Distance', distance),
             SizedBox(height: 4),
             buildInfoRow(Icons.access_time, 'Estimated time', duration),
-            Text('Recommended for short distances',
-                style: TextStyle(
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey[700],
-                )
-            ),
+            
           ],
         ),
       ),
@@ -332,11 +423,13 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
     final color = getTransportColor(vehicleType);
 
     return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: darkGreen, width: 1),
+      ),
       elevation: 3,
       margin: EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-      ),
+    
       child: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Column(
@@ -367,6 +460,35 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
       ),
     );
   }
+
+ 
+  Widget buildRouteBadge(String label, IconData icon, Color color) {
+  return Container(
+    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.2),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: color, width: 1),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+   
 
   // Helper widget for showing info with icon
   Widget buildInfoRow(IconData icon, String label, String value) {
@@ -412,11 +534,32 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
     }
   }
 
+  // Determine if this route is one of our classified routes
+  bool isCheapest = cheapestRoute != null && cheapestRoute == route;
+  bool isFastest = fastestRoute != null && fastestRoute == route;
+  bool isMostComfortable = mostComfortableRoute != null && mostComfortableRoute == route;
+
   return Container(
     margin: EdgeInsets.symmetric(vertical: 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Add badges row if this is a special route
+        if (isCheapest || isFastest || isMostComfortable)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            child: Wrap(
+              spacing: 8,
+              children: [
+                if (isCheapest)
+                  buildRouteBadge('Cheapest', Icons.attach_money, Colors.green),
+                if (isFastest)
+                  buildRouteBadge('Fastest', Icons.speed, Colors.blue),
+                if (isMostComfortable)
+                  buildRouteBadge('Most Comfortable', Icons.airline_seat_recline_extra, Colors.orange),
+              ],
+            ),
+          ),
         if (transitSteps.isEmpty)
           buildWalkingCard(leg)
         else
@@ -434,13 +577,14 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
 }
 
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Transportation Options'),
-        backgroundColor: darkGreen,
+        iconTheme: IconThemeData(color: Colors.white),
+        titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+        backgroundColor: primaryGreen,
         elevation: 0,
       ),
       body: Container(
@@ -523,12 +667,29 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
   child: ListView(
   padding: EdgeInsets.only(bottom: 16),
   children: [
-    if (routes.isNotEmpty) buildTaxiCard(routes.first, 0),
-    ...routes.asMap().entries.map((entry) {
-      final index = entry.key;
-      final route = entry.value;
-      return buildRouteCard(route, index);
-    }).toList(),
+    if (drivingRoute != null) ...[
+      buildTaxiCard(drivingRoute, 0),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Divider(thickness: 1),
+      ),
+    ],
+    // First show classified routes
+    if (cheapestRoute != null)
+      buildRouteCard(cheapestRoute, routes.indexOf(cheapestRoute)),
+    if (fastestRoute != null && fastestRoute != cheapestRoute)
+      buildRouteCard(fastestRoute, routes.indexOf(fastestRoute)),
+    if (mostComfortableRoute != null && 
+        mostComfortableRoute != cheapestRoute && 
+        mostComfortableRoute != fastestRoute)
+      buildRouteCard(mostComfortableRoute, routes.indexOf(mostComfortableRoute)),
+      
+    // Then show the rest of the routes that aren't one of the special ones
+    ...routes.where((route) => 
+      route != cheapestRoute && 
+      route != fastestRoute && 
+      route != mostComfortableRoute
+    ).map((route) => buildRouteCard(route, routes.indexOf(route))).toList(),
   ],
 ),
 
