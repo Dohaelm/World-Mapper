@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/pages/transportations.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:location/location.dart' as loc;
@@ -26,6 +27,8 @@ class _MyHomeScreenState extends State<MyHomeScreen> {
   List<AutocompletePrediction> _startPredictions = [];
   Set<Polyline> _polylines = {};
   List<LatLng> _polylineCoordinates = [];
+  LatLng? startLatLng;
+  LatLng? destLatLng;
   
   final Set<Marker> _markers = {};
   late GooglePlace _googlePlace;
@@ -157,7 +160,7 @@ Future<void> _zoomOut() async {
   }
 
   try {
-    LatLng? startLatLng;
+    
 
     if (start.isEmpty || start == "Current Location") {
       // Use current location as start point
@@ -210,19 +213,27 @@ Future<void> _zoomOut() async {
     }
 
     final destLoc = destDetails!.result!.geometry!.location!;
-    final destLatLng = LatLng(destLoc.lat!, destLoc.lng!);
+     destLatLng = LatLng(destLoc.lat!, destLoc.lng!);
 
     // Animate camera to show route bounds
     final controller = await _controller.future;
     controller.animateCamera(CameraUpdate.newLatLngBounds(
       LatLngBounds(
         southwest: LatLng(
-          startLatLng.latitude < destLatLng.latitude ? startLatLng.latitude : destLatLng.latitude,
-          startLatLng.longitude < destLatLng.longitude ? startLatLng.longitude : destLatLng.longitude,
+          (startLatLng != null && destLatLng != null)
+              ? (startLatLng!.latitude < destLatLng!.latitude ? startLatLng!.latitude : destLatLng!.latitude)
+              : 0.0,
+          (startLatLng != null && destLatLng != null)
+              ? (startLatLng!.longitude < destLatLng!.longitude ? startLatLng!.longitude : destLatLng!.longitude)
+              : 0.0,
         ),
         northeast: LatLng(
-          startLatLng.latitude > destLatLng.latitude ? startLatLng.latitude : destLatLng.latitude,
-          startLatLng.longitude > destLatLng.longitude ? startLatLng.longitude : destLatLng.longitude,
+          (startLatLng != null && destLatLng != null)
+              ? (startLatLng!.latitude > destLatLng!.latitude ? startLatLng!.latitude : destLatLng!.latitude)
+              : 0.0,
+          (startLatLng != null && destLatLng != null)
+              ? (startLatLng!.longitude > destLatLng!.longitude ? startLatLng!.longitude : destLatLng!.longitude)
+              : 0.0,
         ),
       ),
       50,
@@ -239,7 +250,7 @@ Future<void> _zoomOut() async {
         ),
         Marker(
           markerId: MarkerId("destination_location"),
-          position: destLatLng,
+          position: destLatLng!,
           infoWindow: InfoWindow(title: destination),
         ),
       ]);
@@ -247,7 +258,7 @@ Future<void> _zoomOut() async {
       
     });
 
-    await _drawPolyline(startLatLng, destLatLng);
+    await _drawPolyline(startLatLng!, destLatLng!);
 
 
   } catch (e) {
@@ -524,7 +535,15 @@ Positioned(
       ),
     ),
     onPressed: () {
-      print("Transportation options clicked");
+      Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (_) => TransportationOptionsPage(
+      startPoint: startLatLng!,
+      destinationPoint: destLatLng!,
+    ),
+  ),
+);
     },
   ),
 ),
