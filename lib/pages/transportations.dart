@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/models/navigation_models.dart';
+import 'package:flutter_application_1/pages/navigation_screen.dart';
+import 'package:flutter_application_1/services/directions_parser.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
@@ -28,6 +32,7 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
   Map<String, dynamic>? cheapestRoute;
   Map<String, dynamic>? fastestRoute;
   Map<String, dynamic>? mostComfortableRoute;
+  
 
   
   dynamic drivingRoute;
@@ -533,6 +538,7 @@ double calculateTotalPrice(Map<String, dynamic> route) {
       ],
     );
   }
+  
 
   // Main route card with taxi option and transit options
  Widget buildRouteCard(dynamic route, int routeIndex) {
@@ -563,9 +569,56 @@ double calculateTotalPrice(Map<String, dynamic> route) {
   bool isFastest = fastestRoute != null && fastestRoute == route;
   bool isMostComfortable = mostComfortableRoute != null && mostComfortableRoute == route;
 
-  return Container(
+  return InkWell(
+  onTap: () async {
+    // Parse the selected route
+    final List<NavigationStep> steps = DirectionsParser.parseDirectionsResponse(route);
+
+    // Provide a destination name (e.g., from route summary or your own label)
+    final String destinationName = route['legs'][0]['end_address'] ?? 'Destination';
+    final currentPosition = await Geolocator.getCurrentPosition();
+
+  // Compare to selected start point
+  double distance = Geolocator.distanceBetween(
+    currentPosition.latitude,
+    currentPosition.longitude,
+    widget.startPoint.latitude,
+    widget.startPoint.longitude,
+  );
+
+  if (distance > 2000) { // threshold in meters (you can change it)
+    // Show alert
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text("Incorrect Starting Point"),
+        content: Text("Make sure your current location matches your selected start point."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("OK"),
+          ),
+        ],
+      ),
+    );
+    return; // don’t proceed to NavigationScreen
+  }
+
+    // Navigate to the NavigationScreen with the parsed steps and destination name
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NavigationScreen(
+          navigationSteps: steps,
+          destinationName: destinationName,
+        ),
+      ),
+    );
+  },
+  child: Container(
     margin: EdgeInsets.symmetric(vertical: 8),
     child: Column(
+    
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Add badges row if this is a special route
@@ -597,6 +650,7 @@ double calculateTotalPrice(Map<String, dynamic> route) {
         Divider(thickness: 1),
       ],
     ),
+  )
   );
 }
 
