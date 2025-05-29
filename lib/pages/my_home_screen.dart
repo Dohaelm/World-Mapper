@@ -355,7 +355,9 @@ Positioned(
       if (_startPredictions.isNotEmpty)
         Container(
           color: Colors.white,
-          constraints: BoxConstraints(maxHeight: 150),
+          constraints: BoxConstraints(
+  maxHeight: MediaQuery.of(context).size.height * 0.5, // half of screen
+),
           child: ListView.builder(
             shrinkWrap: true,
             itemCount: _startPredictions.length,
@@ -420,7 +422,9 @@ Positioned(
       if (_predictions.isNotEmpty)
         Container(
           color: Colors.white,
-          constraints: BoxConstraints(maxHeight: 150),
+          constraints: BoxConstraints(
+  maxHeight: MediaQuery.of(context).size.height * 0.5, // half of screen
+),
           child: ListView.builder(
             shrinkWrap: true,
             itemCount: _predictions.length,

@@ -55,16 +55,24 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
 
   // Most comfortable: Prefer TRAM > SUBWAY > BUS > others
   List<String> comfortRanking = ['TRAM', 'SUBWAY', 'BUS'];
-  mostComfortableRoute = routes.firstWhere(
-    (route) => route['legs'][0]['steps'].any((step) {
-      if (step['travel_mode'] == 'TRANSIT') {
-        final vehicleType = extractVehicleType(step['transit_details']['line']);
-        return comfortRanking.contains(vehicleType);
-      }
-      return false;
-    }),
-    orElse: () => routes.first,
-  );
+
+int getComfortScore(Map<String, dynamic> route) {
+  final steps = route['legs'][0]['steps'];
+  for (var type in comfortRanking) {
+    if (steps.any((step) =>
+        step['travel_mode'] == 'TRANSIT' &&
+        extractVehicleType(step['transit_details']['line']) == type)) {
+      return comfortRanking.indexOf(type); // Lower is better
+    }
+  }
+  return comfortRanking.length; // Least comfortable
+}
+
+mostComfortableRoute = routes.reduce((a, b) {
+  final scoreA = getComfortScore(a);
+  final scoreB = getComfortScore(b);
+  return scoreA < scoreB ? a : b;
+});
 }
 double calculateTotalPrice(Map<String, dynamic> route) {
   double total = 0.0;
@@ -142,6 +150,14 @@ double calculateTotalPrice(Map<String, dynamic> route) {
       });
     }
   }
+  String getRouteSignature(Map<String, dynamic> route) {
+  final steps = route['legs'][0]['steps'];
+  final transitLines = steps.where((step) => step['travel_mode'] == 'TRANSIT').map((step) {
+    return step['transit_details']['line']['short_name'] ?? step['transit_details']['line']['name'];
+  }).join('-');
+  return transitLines;
+}
+
 
   Future<void> fetchTransitRoutes() async {
     final origin = '${widget.startPoint.latitude},${widget.startPoint.longitude}';
@@ -158,6 +174,14 @@ double calculateTotalPrice(Map<String, dynamic> route) {
         if (data['status'] == 'OK') {
           setState(() {
             routes = data['routes'];
+            final seenSignatures = <String>{};
+            routes = routes.where((route) {
+            final signature = getRouteSignature(route);
+            if (seenSignatures.contains(signature)) return false;
+            seenSignatures.add(signature);
+            return true;
+             }).toList();
+
             isLoading = false;
           });
         } else if (data['status'] == 'ZERO_RESULTS') {
