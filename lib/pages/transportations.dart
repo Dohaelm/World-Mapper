@@ -58,27 +58,62 @@ class _TransportationOptionsPageState extends State<TransportationOptionsPage> {
     return durationA < durationB ? a : b;
   });
 
-  // Most comfortable: Prefer TRAM > SUBWAY > BUS > others
+  // Most comfortable: Consider vehicle preference, number of transfers, and destination accuracy
   List<String> comfortRanking = ['TRAM', 'SUBWAY', 'BUS'];
 
-int getComfortScore(Map<String, dynamic> route) {
-  final steps = route['legs'][0]['steps'];
-  for (var type in comfortRanking) {
-    if (steps.any((step) =>
-        step['travel_mode'] == 'TRANSIT' &&
-        extractVehicleType(step['transit_details']['line']) == type)) {
-      return comfortRanking.indexOf(type); // Lower is better
+  int getComfortScore(Map<String, dynamic> route) {
+    final steps = route['legs'][0]['steps'];
+    
+    // Count transit steps (transfers)
+    int transitSteps = 0;
+    int bestVehicleScore = comfortRanking.length; // Default to worst
+    
+    for (var step in steps) {
+      if (step['travel_mode'] == 'TRANSIT') {
+        transitSteps++;
+        final line = step['transit_details']['line'];
+        final vehicleType = extractVehicleType(line);
+        final vehicleScore = comfortRanking.contains(vehicleType) 
+            ? comfortRanking.indexOf(vehicleType) 
+            : comfortRanking.length;
+        
+        // Keep track of the best (most comfortable) vehicle type in this route
+        if (vehicleScore < bestVehicleScore) {
+          bestVehicleScore = vehicleScore;
+        }
+      }
     }
+    
+    // Check if route reaches exact destination (look at final step)
+    final lastStep = steps.last;
+    bool reachesExactDestination = lastStep['travel_mode'] != 'WALKING' || 
+        (lastStep['distance']?['value'] ?? 0) < 100; // Less than 100m walking at end
+    
+    // Calculate composite comfort score
+    // Lower score = more comfortable
+    int score = 0;
+    
+    // Vehicle type preference (0-3, lower is better)
+    score += bestVehicleScore * 10;
+    
+    // Number of transfers penalty (more transfers = less comfortable)
+    score += (transitSteps - 1) * 5; // First transit step doesn't count as transfer
+    
+    // Destination accuracy penalty
+    if (!reachesExactDestination) {
+      score += 20; // Heavy penalty for not reaching exact destination
+    }
+    
+    return score;
   }
-  return comfortRanking.length; // Least comfortable
+
+  mostComfortableRoute = routes.reduce((a, b) {
+    final scoreA = getComfortScore(a);
+    final scoreB = getComfortScore(b);
+    return scoreA < scoreB ? a : b;
+  });
 }
 
-mostComfortableRoute = routes.reduce((a, b) {
-  final scoreA = getComfortScore(a);
-  final scoreB = getComfortScore(b);
-  return scoreA < scoreB ? a : b;
-});
-}
 double calculateTotalPrice(Map<String, dynamic> route) {
   double total = 0.0;
   for (var step in route['legs'][0]['steps']) {
@@ -91,7 +126,6 @@ double calculateTotalPrice(Map<String, dynamic> route) {
   }
   return total;
 }
-
 
   String extractVehicleType(Map<String, dynamic> line) {
   if (line['vehicle'] != null) {
